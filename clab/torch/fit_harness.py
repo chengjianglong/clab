@@ -98,7 +98,7 @@ def mnist_demo():
 
 class FitHarness(object):
     def __init__(harn, model, datasets, batch_size=4, hyper=None, xpu=None,
-                 train_dpath=None, dry=False):
+                 train_dpath='./train', dry=False):
 
         harn.datasets = None
         harn.loaders = None
@@ -153,6 +153,15 @@ class FitHarness(object):
         }
         harn.epoch = 0
 
+    def setup_dpath(harn, workdir='.'):
+        from clab.torch import folder_structure
+        structure = folder_structure.DirectoryStructure(
+            workdir=workdir, hyper=harn.hyper, datasets=harn.datasets,
+        )
+        dpath = structure.setup_dpath()
+        harn.train_dpath = dpath
+        return dpath
+
     def _setup_loaders(harn, datasets, batch_size):
         data_kw = {'batch_size': batch_size}
         if harn.xpu.is_gpu():
@@ -187,9 +196,21 @@ class FitHarness(object):
             prev_states = harn.prev_snapshots()
 
             model_name = harn.model.__class__.__name__
-            harn.log('There are {} existing snapshots'.format(len(prev_states)))
+
+            harn.log('Criterion: {}'.format(harn.hyper.criterion_cls.__name__))
+            harn.log('Optimizer: {}'.format(harn.hyper.optimizer_cls.__name__))
+            harn.log('Scheduler: {}'.format(harn.hyper.scheduler_cls.__name__))
 
             harn.log('Fitting {} model on {}'.format(model_name, harn.xpu))
+
+            if harn.hyper.init_method == 'he':
+                # TODO: add init_method as a hyperparam?
+                from clab.torch import nninit
+                nninit.init_he_normal(harn.model)
+            else:
+                raise KeyError(harn.hyper.init_method)
+
+            harn.log('There are {} existing snapshots'.format(len(prev_states)))
             harn.xpu.to_xpu(harn.model)
 
             weight = harn.hyper.criterion_params.get('weight', None)
@@ -198,10 +219,6 @@ class FitHarness(object):
                 weight = torch.FloatTensor(harn.hyper.criterion_params['weight'])
                 weight = harn.xpu.to_xpu(weight)
                 harn.hyper.criterion_params['weight'] = weight
-
-            harn.log('Criterion: {}'.format(harn.hyper.criterion_cls.__name__))
-            harn.log('Optimizer: {}'.format(harn.hyper.optimizer_cls.__name__))
-            harn.log('Scheduler: {}'.format(harn.hyper.scheduler_cls.__name__))
 
             # more than one criterion?
             harn.criterion = harn.hyper.criterion_cls(

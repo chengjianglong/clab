@@ -10,6 +10,20 @@ from clab.torch import criterions
 # from clab.torch import lr_schedule
 
 
+def make_short_idstr(params):
+    short_keys = util.shortest_unique_prefixes(list(params.keys()))
+    def shortval(v):
+        if isinstance(v, bool):
+            return int(v)
+        return v
+    d = dict(zip(short_keys, map(shortval, params.values())))
+    def make_idstr(d):
+        return ub.repr2(d, itemsep='', nobr=True, explicit=True, nl=0,
+                        si=True, sort=True)
+    short_idstr = make_idstr(d)
+    return short_idstr
+
+
 def _lookup_scheduler(arg):
     if isinstance(arg, six.string_types):
         options = [
@@ -130,7 +144,7 @@ class HyperParams(object):
     """
 
     def __init__(hyper, criterion=None, optimizer=None, scheduler=None,
-                 other=None, **kwargs):
+                 other=None, init_method='he', **kwargs):
 
         cls, kw = _rectify_lr_scheduler(scheduler, kwargs)
         hyper.scheduler_cls = cls
@@ -147,6 +161,7 @@ class HyperParams(object):
         hyper.criterion_params = kw
 
         hyper.other = other
+        hyper.init_method = init_method  # TODO make initialization classes with params
 
     def _normalize(hyper):
         """
@@ -173,17 +188,19 @@ class HyperParams(object):
             >>> hyper = HyperParams(other={'augment': True, 'n_classes': 10, 'n_channels': 5})
             >>> hyper.hyper_id()
         """
-        short_keys = util.shortest_unique_prefixes(list(hyper.other.keys()))
-        def shortval(v):
-            if isinstance(v, bool):
-                return int(v)
-            return v
-        d = dict(zip(short_keys, map(shortval, hyper.other.values())))
-        def make_idstr(d):
-            return ub.repr2(d, itemsep='', nobr=True, explicit=True, nl=0,
-                            si=True, sort=True)
-        otherid = make_idstr(d)
+        otherid = make_short_idstr(hyper.other)
         return otherid
+        # short_keys = util.shortest_unique_prefixes(list(hyper.other.keys()))
+        # def shortval(v):
+        #     if isinstance(v, bool):
+        #         return int(v)
+        #     return v
+        # d = dict(zip(short_keys, map(shortval, hyper.other.values())))
+        # def make_idstr(d):
+        #     return ub.repr2(d, itemsep='', nobr=True, explicit=True, nl=0,
+        #                     si=True, sort=True)
+        # otherid = make_idstr(d)
+        # return otherid
 
     def hyper_id(hyper):
         """
@@ -227,7 +244,7 @@ class HyperParams(object):
         for k, v in sorted(hyper.optimizer_params.items()):
             if k in total:
                 raise KeyError(k)
-            assert k != 'lr'
+            # assert k != 'lr'
             # if k == 'lr':
             #     continue
             #     # if 'lr_base' in total:

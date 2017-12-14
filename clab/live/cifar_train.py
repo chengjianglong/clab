@@ -357,7 +357,8 @@ def train():
             'colorspace': datasets['train'].colorspace,
             'n_classes': datasets['train'].n_classes,
             'criterion': 'cross_entropy',
-        }
+        },
+        init_method='he',
     )
 
     # model = torchvision.models.resnet50(num_classes=datasets['train'].n_classes)
@@ -365,19 +366,22 @@ def train():
 
     # from clab.torch.models.densenet_efficient import DenseNetEfficient
     from clab.torch.models.densenet import DenseNet
-    model = DenseNet(cifar=True, num_classes=datasets['train'].n_classes)
+    model_kw = dict(cifar=True, num_classes=datasets['train'].n_classes)
+    model = DenseNet(**model_kw)
 
-    nninit.init_he_normal(model)
+    hyper.model_cls = model.__class__
+    hyper.model_params = model_kw
+
+    # nninit.init_he_normal(model)
 
     xpu = xpu_device.XPU.from_argv()
 
     # TODO: need something to auto-generate a cachable directory structure
-    train_dpath = ub.ensuredir('train_cifar_dense')
+    # train_dpath = ub.ensuredir('train_cifar_dense')
 
     batch_size = 32
     harn = fit_harness.FitHarness(
         model=model, hyper=hyper, datasets=datasets, xpu=xpu,
-        train_dpath=train_dpath, dry=False,
         batch_size=batch_size,
     )
 
@@ -390,6 +394,9 @@ def train():
         # loss = harn.criterion(output, label)
         loss = criterion(output, label)
         return [output], loss
+
+    workdir = ub.ensuredir('train_cifar_work')
+    harn.setup_dpath(workdir)
 
     harn.run()
 
