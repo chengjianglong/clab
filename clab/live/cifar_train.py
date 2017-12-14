@@ -5,7 +5,10 @@ import torchvision
 import pandas as pd
 from torchvision.datasets import cifar
 from clab.torch import xpu_device
-from clab.torch.transforms import (ImageCenterScale, ZipTransforms)
+from clab.torch import nninit
+from clab.torch import hyperparams
+from clab.torch import fit_harness
+from clab.torch.transforms import (ImageCenterScale,)
 from clab.torch.transforms import (RandomWarpAffine, RandomGamma, RandomBlur,)
 from clab import util
 
@@ -327,38 +330,49 @@ def train():
     datasets['train'].center_inputs = datasets['train']._make_normalizer('dependant')
     datasets['vali'].center_inputs = datasets['train'].center_inputs
 
-    from clab.torch import hyperparams
-    from clab.torch import fit_harness
+    criterion = torch.nn.CrossEntropyLoss()
 
     hyper = hyperparams.HyperParams(
-        criterion=(torch.nn.CrossEntropyLoss, {
-            # 'ignore_label': ignore_label,
-            # TODO: weight should be a FloatTensor
-            # 'weight': class_weights,
-        }),
+        # criterion=(torch.nn.CrossEntropyLoss, {
+        #     # 'ignore_label': ignore_label,
+        #     # TODO: weight should be a FloatTensor
+        #     # 'weight': class_weights,
+        # }),
         optimizer=(torch.optim.SGD, {
             # 'weight_decay': .0006,
             'weight_decay': .0005,
             'momentum': 0.9,
             'nesterov': True,
+            'lr': 0.001,
         }),
-        scheduler=('Exponential', {
-            'gamma': 0.99,
-            'base_lr': 0.001,
-            'stepsize': 2,
+        scheduler=('ReduceLROnPlateau', {
+            # 'gamma': 0.99,
+            # 'base_lr': 0.001,
+            # 'stepsize': 2,
         }),
+        # Specify anything else that is special about your hyperparams here
+        # Especially if you make a custom_batch_runner
         other={
             'augment': datasets['train'].augment,
             'colorspace': datasets['train'].colorspace,
             'n_classes': datasets['train'].n_classes,
+            'criterion': 'cross_entropy',
         }
     )
 
     # model = torchvision.models.resnet50(num_classes=datasets['train'].n_classes)
-    model = torchvision.models.DenseNet(num_classes=datasets['train'].n_classes, block_config=[4, 4])
+    # model = torchvision.models.DenseNet(num_classes=datasets['train'].n_classes, block_config=[4, 4])
+
+    # from clab.torch.models.densenet_efficient import DenseNetEfficient
+    from clab.torch.models.densenet import DenseNet
+    model = DenseNet(cifar=True, num_classes=datasets['train'].n_classes)
+
+    nninit.init_he_normal(model)
+
     xpu = xpu_device.XPU.from_argv()
 
-    train_dpath = ub.ensuredir('train_cifar')
+    # TODO: need something to auto-generate a cachable directory structure
+    train_dpath = ub.ensuredir('train_cifar_dense')
 
     batch_size = 32
     harn = fit_harness.FitHarness(
@@ -367,4 +381,23 @@ def train():
         batch_size=batch_size,
     )
 
+    @harn.set_batch_runner
+    def batch_runner(harn, inputs, labels):
+        # Forward pass and compute the loss
+        output = harn.model(*inputs)
+        # Compute the loss
+        label = labels[0]
+        # loss = harn.criterion(output, label)
+        loss = criterion(output, label)
+        return [output], loss
+
     harn.run()
+
+
+if __name__ == '__main__':
+    r"""
+    CommandLine:
+        python -m clab.live.cifar_train train
+    """
+    import xdoctest
+    xdoctest.doctest_module(__file__)

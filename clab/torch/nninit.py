@@ -108,7 +108,7 @@ def xavier_uniform(tensor, gain=1):
 
 def xavier_normal(tensor, gain=1):
     """Fills the input Tensor or Variable with values according to the method described in "Understanding the difficulty of training
-       deep feedforward neural networks" - Glorot, X. and Bengio, Y., using a normal distribution.
+       deep feedforward neural networks" - Glorot, X. and Bengio, Y., using a normal distribution. 2010
 
        The resulting tensor will have values sampled from normal distribution with mean=0 and
        std = gain * sqrt(2/(fan_in + fan_out))
@@ -135,7 +135,7 @@ def he_uniform(tensor, gain=1):
     Fills the input Tensor or Variable with values according to the method
     described in "Delving deep into rectifiers: Surpassing human-level
     performance on ImageNet classification" - He, K. et al using a uniform
-    distribution.
+    distribution. 2015
 
     The resulting tensor will have values sampled from U(-a, a) where a = gain * sqrt(1/(fan_in))
 
@@ -163,7 +163,7 @@ def he_normal(tensor, gain=1):
     Fills the input Tensor or Variable with values according to the method
     described in "Delving deep into rectifiers: Surpassing human-level
     performance on ImageNet classification" - He, K. et al using a normal
-    distribution.
+    distribution. 2015
 
    The resulting tensor will have values sampled from normal distribution with
    mean=0 and std = gain * sqrt(1/(fan_in))
@@ -303,3 +303,22 @@ def shock_outward(tensor, scale=.1, a_min=.01):
         offset = np.abs(torch.randn(tensor.shape) * std) * torch.sign(tensor)
         tensor += offset
         return tensor
+
+
+def trainable_layers(model):
+    queue = [model]
+    while queue:
+        item = queue.pop(0)
+        # TODO: need to put all trainable layer types here
+        if isinstance(item, torch.nn.Conv2d):
+            yield item
+        for child in item.children():
+            queue.append(child)
+
+
+def init_he_normal(model):
+    for item in trainable_layers(model):
+        if isinstance(item, torch.nn.Conv2d):
+            he_normal(item.weight)
+        if getattr(item, 'bias', None) is not None:
+            item.bias.data.fill_(0)

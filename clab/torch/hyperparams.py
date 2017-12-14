@@ -7,14 +7,19 @@ import torch
 import six
 from clab import util
 from clab.torch import criterions
-from clab.torch import lr_schedule
+# from clab.torch import lr_schedule
 
 
 def _lookup_scheduler(arg):
     if isinstance(arg, six.string_types):
         options = [
-            lr_schedule.Constant,
-            lr_schedule.Exponential,
+            torch.optim.lr_scheduler.LambdaLR,
+            torch.optim.lr_scheduler.StepLR,
+            torch.optim.lr_scheduler.MultiStepLR,
+            torch.optim.lr_scheduler.ExponentialLR,
+            torch.optim.lr_scheduler.ReduceLROnPlateau,
+            # lr_schedule.Constant,
+            # lr_schedule.Exponential,
         ]
         cls = {c.__name__: c for c in options}[arg]
     else:
@@ -106,6 +111,9 @@ class HyperParams(object):
     """
     Holds hyper relavent to training strategy
 
+    CommandLine:
+        python -m clab.torch.hyperparams HyperParams
+
     Example:
         >>> from clab.torch.hyperparams import *
         >>> hyper = HyperParams(
@@ -116,11 +124,9 @@ class HyperParams(object):
         >>>         'nesterov': True, 'weight_decay': .0005,
         >>>         'momentum': 0.9
         >>>     }),
-        >>>     scheduler=('Exponential', {}),
+        >>>     scheduler=('ReduceLROnPlateau', {}),
         >>> )
-        >>> hyper.criterion_params
-        >>> hyper.optimizer_params
-        >>> hyper.scheduler_params
+        >>> print(hyper.hyper_id())
     """
 
     def __init__(hyper, criterion=None, optimizer=None, scheduler=None,
@@ -133,8 +139,9 @@ class HyperParams(object):
         cls, kw = _rectify_optimizer(optimizer, kwargs)
         hyper.optimizer_cls = cls
         hyper.optimizer_params = kw
-        hyper.optimizer_params.pop('lr', None)  # hack
+        # hyper.optimizer_params.pop('lr', None)  # hack
 
+        # What if multiple criterions are used?
         cls, kw = _rectify_criterion(criterion, kwargs)
         hyper.criterion_cls = cls
         hyper.criterion_params = kw
@@ -149,6 +156,16 @@ class HyperParams(object):
         if weight is not None:
             weight = list(map(float, weight))
             hyper.criterion_params['weight'] = weight
+
+    def make_optimizer(hyper, parameters):
+        """ Instanciate the optimizer defined by the hyperparams """
+        optimizer = hyper.optimizer_cls(parameters, **hyper.optimizer_params)
+        return optimizer
+
+    def make_scheduler(hyper, optimizer):
+        """ Instanciate the lr scheduler defined by the hyperparams """
+        scheduler = hyper.scheduler_cls(optimizer, **hyper.scheduler_params)
+        return scheduler
 
     def other_id(hyper):
         """
