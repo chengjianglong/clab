@@ -332,12 +332,20 @@ def train():
 
     criterion = torch.nn.CrossEntropyLoss()
 
+    # from clab.torch.models.densenet_efficient import DenseNetEfficient
+    import clab.torch.models.densenet
+
     hyper = hyperparams.HyperParams(
         # criterion=(torch.nn.CrossEntropyLoss, {
         #     # 'ignore_label': ignore_label,
         #     # TODO: weight should be a FloatTensor
         #     # 'weight': class_weights,
         # }),
+
+        model=(clab.torch.models.densenet.DenseNet, {
+            'cifar': True,
+            'num_classes': datasets['train'].n_classes,
+        }),
         optimizer=(torch.optim.SGD, {
             # 'weight_decay': .0006,
             'weight_decay': .0005,
@@ -361,19 +369,6 @@ def train():
         init_method='he',
     )
 
-    # model = torchvision.models.resnet50(num_classes=datasets['train'].n_classes)
-    # model = torchvision.models.DenseNet(num_classes=datasets['train'].n_classes, block_config=[4, 4])
-
-    # from clab.torch.models.densenet_efficient import DenseNetEfficient
-    from clab.torch.models.densenet import DenseNet
-    model_kw = dict(cifar=True, num_classes=datasets['train'].n_classes)
-    model = DenseNet(**model_kw)
-
-    hyper.model_cls = model.__class__
-    hyper.model_params = model_kw
-
-    # nninit.init_he_normal(model)
-
     xpu = xpu_device.XPU.from_argv()
 
     # TODO: need something to auto-generate a cachable directory structure
@@ -381,8 +376,7 @@ def train():
 
     batch_size = 32
     harn = fit_harness.FitHarness(
-        model=model, hyper=hyper, datasets=datasets, xpu=xpu,
-        batch_size=batch_size,
+        hyper=hyper, datasets=datasets, xpu=xpu, batch_size=batch_size,
     )
 
     @harn.set_batch_runner

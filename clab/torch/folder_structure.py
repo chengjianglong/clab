@@ -12,15 +12,10 @@ class DirectoryStructure(object):
     def train_info(self):
         # TODO: if pretrained is another clab model, then we should read that
         # train_info if it exists and append it to a running list of train_info
-        from clab.torch.hyperparams import _class_default_params, make_short_idstr
-
         arch = self.hyper.model_cls.__name__
-        # TODO: add model as a hyperparam specification
-        archkw = _class_default_params(self.hyper.model_cls)
-        archkw.update(self.hyper.model_params)
-        arch_id = arch + ',' + make_short_idstr(archkw)
+        arch_id = self.hyper.model_id()
 
-        arch_hashid = arch + ',' + util.hash_data(make_short_idstr(archkw))[0:8]
+        arch_hashid = self.hyper.model_id(brief=True)
 
         train_hyper_id = self.hyper.hyper_id()
         train_hyper_hashid = util.hash_data(train_hyper_id)[:8]
@@ -47,7 +42,7 @@ class DirectoryStructure(object):
             'arch': arch,
             'arch_hashid': arch_hashid,
             'arch_id': arch_id,
-            'archkw': archkw,
+            # 'archkw': archkw,
             'input_id': input_id,
             'other_id': other_id,
             'train_hyper_id': train_hyper_id,

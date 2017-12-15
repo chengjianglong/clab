@@ -2,6 +2,7 @@
 """
 Torch version of hyperparams
 """
+import numpy as np
 import ubelt as ub
 import torch
 import six
@@ -11,7 +12,13 @@ from clab.torch import criterions
 
 
 def make_short_idstr(params):
-    short_keys = util.shortest_unique_prefixes(list(params.keys()))
+    """
+    Make id-string where they keys are shortened
+    """
+    short_keys = util.shortest_unique_prefixes(list(params.keys()),
+                                               allow_simple=False,
+                                               allow_end=True,
+                                               min_length=1)
     def shortval(v):
         if isinstance(v, bool):
             return int(v)
@@ -24,46 +31,14 @@ def make_short_idstr(params):
     return short_idstr
 
 
-def _lookup_scheduler(arg):
-    if isinstance(arg, six.string_types):
-        options = [
-            torch.optim.lr_scheduler.LambdaLR,
-            torch.optim.lr_scheduler.StepLR,
-            torch.optim.lr_scheduler.MultiStepLR,
-            torch.optim.lr_scheduler.ExponentialLR,
-            torch.optim.lr_scheduler.ReduceLROnPlateau,
-            # lr_schedule.Constant,
-            # lr_schedule.Exponential,
-        ]
-        cls = {c.__name__: c for c in options}[arg]
-    else:
-        cls = arg
-    return cls
-
-
-def _lookup_optimizer(arg):
-    if isinstance(arg, six.string_types):
-        options = [
-            torch.optim.Adam,
-            torch.optim.SGD,
-        ]
-        cls = {c.__name__.lower(): c for c in options}[arg.lower()]
-    else:
-        cls = arg
-    return cls
-
-
-def _lookup_criterion(arg):
-    if isinstance(arg, six.string_types):
-        options = [
-            criterions.CrossEntropyLoss2D,
-            criterions.ContrastiveLoss,
-            torch.nn.CrossEntropyLoss,
-        ]
-        cls = {c.__name__: c for c in options}[arg]
-    else:
-        cls = arg
-    return cls
+def make_idstr(d):
+    """
+    Make full-length-key id-string
+    """
+    if not isinstance(d, ub.odict):
+        d = ub.odict(sorted(d.items()))
+    return ub.repr2(d, itemsep='', nobr=True, explicit=True, nl=0,
+                    si=True)
 
 
 def _rectify_class(lookup, arg, kw):
@@ -102,7 +77,21 @@ def _class_default_params(cls):
 
 def _rectify_criterion(arg, kw):
     if arg is None:
-        arg = 'CrossEntropyLoss'
+        # arg = 'CrossEntropyLoss'
+        return None, None
+
+    def _lookup_criterion(arg):
+        if isinstance(arg, six.string_types):
+            options = [
+                criterions.CrossEntropyLoss2D,
+                criterions.ContrastiveLoss,
+                torch.nn.CrossEntropyLoss,
+            ]
+            cls = {c.__name__: c for c in options}[arg]
+        else:
+            cls = arg
+        return cls
+
     cls, kw2 = _rectify_class(_lookup_criterion, arg, kw)
     return cls, kw2
 
@@ -110,14 +99,70 @@ def _rectify_criterion(arg, kw):
 def _rectify_optimizer(arg, kw):
     if arg is None:
         arg = 'SGD'
+
+    def _lookup_optimizer(arg):
+        if isinstance(arg, six.string_types):
+            options = [
+                torch.optim.Adam,
+                torch.optim.SGD,
+            ]
+            cls = {c.__name__.lower(): c for c in options}[arg.lower()]
+        else:
+            cls = arg
+        return cls
+
     cls, kw2 = _rectify_class(_lookup_optimizer, arg, kw)
+
+    from torch.optim import optimizer
+    for k, v in kw2.items():
+        if v is optimizer.required:
+            raise ValueError('Must specify {} for {}'.format(k, cls))
+
     return cls, kw2
 
 
 def _rectify_lr_scheduler(arg, kw):
     if arg is None:
-        arg = 'Constant'
+        return None, None
+        # arg = 'Constant'
+
+    def _lookup_scheduler(arg):
+        if isinstance(arg, six.string_types):
+            options = [
+                torch.optim.lr_scheduler.LambdaLR,
+                torch.optim.lr_scheduler.StepLR,
+                torch.optim.lr_scheduler.MultiStepLR,
+                torch.optim.lr_scheduler.ExponentialLR,
+                torch.optim.lr_scheduler.ReduceLROnPlateau,
+                # lr_schedule.Constant,
+                # lr_schedule.Exponential,
+            ]
+            cls = {c.__name__: c for c in options}[arg]
+        else:
+            cls = arg
+        return cls
+
     cls, kw2 = _rectify_class(_lookup_scheduler, arg, kw)
+    return cls, kw2
+
+
+def _rectify_model(arg, kw):
+    if arg is None:
+        return None, None
+
+    def _lookup_model(arg):
+        import torchvision
+        if isinstance(arg, six.string_types):
+            options = [
+                torchvision.models.AlexNet,
+                torchvision.models.DenseNet,
+            ]
+            cls = {c.__name__: c for c in options}[arg]
+        else:
+            cls = arg
+        return cls
+
+    cls, kw2 = _rectify_class(_lookup_model, arg, kw)
     return cls, kw2
 
 
@@ -136,7 +181,7 @@ class HyperParams(object):
         >>>     }),
         >>>     optimizer=(torch.optim.SGD, {
         >>>         'nesterov': True, 'weight_decay': .0005,
-        >>>         'momentum': 0.9
+        >>>         'momentum': 0.9, lr=.001,
         >>>     }),
         >>>     scheduler=('ReduceLROnPlateau', {}),
         >>> )
@@ -144,33 +189,45 @@ class HyperParams(object):
     """
 
     def __init__(hyper, criterion=None, optimizer=None, scheduler=None,
-                 other=None, init_method='he', **kwargs):
+                 model=None, other=None, init_method='he', **kwargs):
 
-        cls, kw = _rectify_lr_scheduler(scheduler, kwargs)
-        hyper.scheduler_cls = cls
-        hyper.scheduler_params = kw
+        cls, kw = _rectify_model(model, kwargs)
+        hyper.model_cls = cls
+        hyper.model_params = kw
 
         cls, kw = _rectify_optimizer(optimizer, kwargs)
         hyper.optimizer_cls = cls
         hyper.optimizer_params = kw
         # hyper.optimizer_params.pop('lr', None)  # hack
 
+        cls, kw = _rectify_lr_scheduler(scheduler, kwargs)
+        hyper.scheduler_cls = cls
+        hyper.scheduler_params = kw
+
         # What if multiple criterions are used?
         cls, kw = _rectify_criterion(criterion, kwargs)
         hyper.criterion_cls = cls
         hyper.criterion_params = kw
 
+        if len(kwargs) > 0:
+            raise ValueError('Unused kwargs {}'.format(list(kwargs.keys())))
+
         hyper.other = other
         hyper.init_method = init_method  # TODO make initialization classes with params
 
-    def _normalize(hyper):
-        """
-        normalize for hashid generation
-        """
-        weight = hyper.criterion_params.get('weight', None)
-        if weight is not None:
-            weight = list(map(float, weight))
-            hyper.criterion_params['weight'] = weight
+    # def _normalize(hyper):
+    #     """
+    #     normalize for hashid generation
+    #     """
+    #     weight = hyper.criterion_params.get('weight', None)
+    #     if weight is not None:
+    #         weight = list(map(float, weight))
+    #         hyper.criterion_params['weight'] = weight
+
+    def make_model(hyper, parameters):
+        """ Instanciate the model defined by the hyperparams """
+        model = hyper.model_cls(**hyper.model_params)
+        return model
 
     def make_optimizer(hyper, parameters):
         """ Instanciate the optimizer defined by the hyperparams """
@@ -181,6 +238,33 @@ class HyperParams(object):
         """ Instanciate the lr scheduler defined by the hyperparams """
         scheduler = hyper.scheduler_cls(optimizer, **hyper.scheduler_params)
         return scheduler
+
+    def model_id(hyper, brief=False):
+        """
+        CommandLine:
+            python -m clab.torch.hyperparams HyperParams.model_id
+
+        Example:
+            >>> from clab.torch.hyperparams import *
+            >>> hyper = HyperParams(model='DenseNet', optimizer=('SGD', dict(lr=.001)))
+            >>> print(hyper.model_id())
+            >>> hyper = HyperParams(model='AlexNet', optimizer=('SGD', dict(lr=.001)))
+            >>> print(hyper.model_id())
+            >>> print(hyper.hyper_id())
+            >>> hyper = HyperParams(model='AlexNet', optimizer=('SGD', dict(lr=.001)), scheduler='ReduceLROnPlateau')
+            >>> print(hyper.hyper_id())
+        """
+        arch = hyper.model_cls.__name__
+        # TODO: add model as a hyperparam specification
+        # archkw = _class_default_params(hyper.model_cls)
+        # archkw.update(hyper.model_params)
+        archkw = hyper.model_params
+        if brief:
+            arch_id = arch + ',' + util.hash_data(make_short_idstr(archkw))[0:8]
+        else:
+            # arch_id = arch + ',' + make_idstr(archkw)
+            arch_id = arch + ',' + make_short_idstr(archkw)
+        return arch_id
 
     def other_id(hyper):
         """
@@ -208,60 +292,50 @@ class HyperParams(object):
         Suitable for hashing.
 
         CommandLine:
-            python -m clab.hyperparams HyperParams.hyper_id
+            python -m clab.torch.hyperparams HyperParams.hyper_id
 
         Example:
             >>> from clab.torch.hyperparams import *
             >>> hyper = HyperParams(other={'n_classes': 10, 'n_channels': 5})
-            >>> hyper.hyper_id()
+            >>> print(hyper.hyper_id())
         """
-        hyper._normalize()
+        # hyper._normalize()
 
-        def make_idstr(d):
-            return ub.repr2(d, itemsep='', nobr=True, explicit=True, nl=0,
-                            si=True)
         id_parts = []
-        d = ub.odict()
         total = ub.odict()
-        for k, v in sorted(hyper.scheduler_params.items()):
-            if k in total:
-                raise KeyError(k)
-            d[k] = v
-            total[k] = v
-        id_parts.append(hyper.scheduler_cls.__name__)
-        id_parts.append(make_idstr(d))
 
-        d = ub.odict()
-        for k, v in sorted(hyper.criterion_params.items()):
-            if k in total:
-                raise KeyError(k)
-            d[k] = v
-            total[k] = v
-        id_parts.append(hyper.criterion_cls.__name__)
-        id_parts.append(make_idstr(d))
+        def _make_part(cls, params):
+            """
+            append an id-string derived from the class and params.
+            TODO: what if we have an instance and not a cls/params tuple?
+            """
+            if cls is None:
+                return
+            d = ub.odict()
+            for k, v in sorted(params.items()):
+                if k in total:
+                    raise KeyError(k)
+                if isinstance(v, torch.Tensor):
+                    v = v.numpy()
+                if isinstance(v, np.ndarray):
+                    if v.kind == 'f':
+                        v = list(map(float, v))
+                    else:
+                        raise NotImplementedError()
+                d[k] = v
+                total[k] = v
+            type_str = cls.__name__
+            # param_str = make_idstr(d)
+            print('d = {!r}'.format(d))
+            param_str = make_short_idstr(d)
+            assert ' at 0x' not in param_str, 'probably hashing an object: {}'.format(param_str)
+            id_parts.append(type_str)
+            id_parts.append(param_str)
 
-        d = ub.odict()
-        for k, v in sorted(hyper.optimizer_params.items()):
-            if k in total:
-                raise KeyError(k)
-            # assert k != 'lr'
-            # if k == 'lr':
-            #     continue
-            #     # if 'lr_base' in total:
-            #     #     v = total['lr_base']
-            d[k] = v
-            total[k] = v
-        id_parts.append(hyper.optimizer_cls.__name__)
-        id_parts.append(make_idstr(d))
-
-        # d = ub.odict()
-        # for k, v in sorted(hyper.other.items()):
-        #     if k in total:
-        #         raise KeyError(k)
-        #     d[k] = v
-        #     total[k] = v
-        # id_parts.append('other')
-        # id_parts.append(make_idstr(d))
+        _make_part(hyper.model_cls, hyper.model_params)
+        _make_part(hyper.optimizer_cls, hyper.optimizer_params)
+        _make_part(hyper.scheduler_cls, hyper.scheduler_params)
+        _make_part(hyper.criterion_cls, hyper.criterion_params)
 
         idstr = ','.join(id_parts)
         return idstr

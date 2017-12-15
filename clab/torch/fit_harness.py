@@ -51,9 +51,10 @@ def mnist_demo():
     batch_size = 128
     n_classes = 10
     xpu = xpu_device.XPU.from_argv(min_memory=4000)
-    model = models.MnistNet(n_channels=1, n_classes=n_classes)
+    # model = models.MnistNet(n_channels=1, n_classes=n_classes)
 
     hyper = hyperparams.HyperParams(
+        model=models.MnistNet(n_channels=1, n_classes=n_classes),
         optimizer=torch.optim.Adam,
         criterion=torch.nn.CrossEntropyLoss,
         other={
@@ -64,7 +65,7 @@ def mnist_demo():
 
     train_dpath = os.path.expanduser('~/data/work/mnist/harness/mnist-net')
     harn = FitHarness(
-        model=model, datasets=datasets, batch_size=batch_size,
+        datasets=datasets, batch_size=batch_size,
         train_dpath=train_dpath, xpu=xpu, hyper=hyper,
     )
 
@@ -97,7 +98,7 @@ def mnist_demo():
 
 
 class FitHarness(object):
-    def __init__(harn, model, datasets, batch_size=4, hyper=None, xpu=None,
+    def __init__(harn, datasets, batch_size=4, hyper=None, xpu=None,
                  train_dpath='./train', dry=False):
 
         harn.datasets = None
@@ -120,8 +121,7 @@ class FitHarness(object):
 
         harn._setup_loaders(datasets, batch_size)
 
-        harn.model = model
-
+        harn.model = None
         harn.hyper = hyper
 
         # should this be a hyperparam?
@@ -195,13 +195,15 @@ class FitHarness(object):
         else:
             prev_states = harn.prev_snapshots()
 
-            model_name = harn.model.__class__.__name__
+            model_name = harn.hyper.model_cls.__name__
 
             harn.log('Criterion: {}'.format(harn.hyper.criterion_cls.__name__))
             harn.log('Optimizer: {}'.format(harn.hyper.optimizer_cls.__name__))
             harn.log('Scheduler: {}'.format(harn.hyper.scheduler_cls.__name__))
 
             harn.log('Fitting {} model on {}'.format(model_name, harn.xpu))
+
+            harn.model = harn.hyper.make_model()
 
             if harn.hyper.init_method == 'he':
                 # TODO: add init_method as a hyperparam?
