@@ -162,7 +162,7 @@ class InMemoryInputs(ub.NiceRepr):
         print(' * input_id = {}'.format(self.input_id))
 
 
-class CIFAR_Wrapper(torch.data.Dataset):  # cifar.CIFAR10):
+class CIFAR_Wrapper(torch.utils.data.Dataset):  # cifar.CIFAR10):
     def __init__(self, inputs, task, workdir):
         self.inputs = inputs
         self.task = task
