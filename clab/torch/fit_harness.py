@@ -127,7 +127,7 @@ class FitHarness(object):
         # should this be a hyperparam?
         harn.stopping = early_stop.EarlyStop(patience=10)
 
-        harn.prog = None
+        harn.main_prog = None
         harn._subprogs = None
 
         harn._tensorboard_hooks = []
@@ -199,7 +199,11 @@ class FitHarness(object):
 
             model_name = harn.hyper.model_cls.__name__
 
-            harn.log('Criterion: {}'.format(harn.hyper.criterion_cls.__name__))
+            if harn.hyper.criterion_cls:
+                harn.log('Criterion: {}'.format(harn.hyper.criterion_cls.__name__))
+            else:
+                harn.log('Criterion: Custom')
+
             harn.log('Optimizer: {}'.format(harn.hyper.optimizer_cls.__name__))
             harn.log('Scheduler: {}'.format(harn.hyper.scheduler_cls.__name__))
 
@@ -250,7 +254,7 @@ class FitHarness(object):
             # workaround for ReduceLROnPlateau
             lrs = set(map(lambda group: group['lr'], harn.scheduler.optimizer.param_groups))
         lr_str = ','.join(['{:.2g}'.format(lr) for lr in lrs])
-        harn.prog.set_description('epoch lr:{} │ {}'.format(lr_str, harn.stopping.message()))
+        harn.main_prog.set_description('epoch lr:{} │ {}'.format(lr_str, harn.stopping.message()))
 
     def run(harn):
         harn.log('Begin training')
@@ -260,9 +264,9 @@ class FitHarness(object):
         if harn._check_termination():
             return
 
-        harn.prog = tqdm.tqdm(desc='epoch', total=harn.config['max_iter'],
-                              disable=harn.config['show_prog'],
-                              dynamic_ncols=True, initial=harn.epoch)
+        harn.main_prog = tqdm.tqdm(desc='epoch', total=harn.config['max_iter'],
+                                   disable=harn.config['show_prog'],
+                                   dynamic_ncols=True, initial=harn.epoch)
         harn._subprogs = {}
 
         if harn.scheduler:
@@ -311,7 +315,7 @@ class FitHarness(object):
                 if (harn.epoch + 1) % harn.intervals['snapshot'] == 0:
                     harn.save_snapshot()
 
-                harn.prog.update()
+                harn.main_prog.update()
 
                 # check for termination
                 if harn._check_termination():
@@ -561,8 +565,8 @@ class FitHarness(object):
         return False
 
     def _close_prog(harn):
-        harn.prog.close()
-        harn.prog = None
+        harn.main_prog.close()
+        harn.main_prog = None
         harn._subprogs = None
         sys.stdout.write('\n\n\n\n')  # fixes progress bar formatting
 
