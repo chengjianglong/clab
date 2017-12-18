@@ -221,15 +221,16 @@ class FitHarness(object):
             harn.log('There are {} existing snapshots'.format(len(prev_states)))
             harn.xpu.to_xpu(harn.model)
 
-            weight = harn.hyper.criterion_params.get('weight', None)
-            if weight is not None:
-                harn.log('Casting weights')
-                weight = torch.FloatTensor(harn.hyper.criterion_params['weight'])
-                weight = harn.xpu.to_xpu(weight)
-                harn.hyper.criterion_params['weight'] = weight
-
             # more than one criterion?
             if harn.hyper.criterion_cls:
+
+                weight = harn.hyper.criterion_params.get('weight', None)
+                if weight is not None:
+                    harn.log('Casting weights')
+                    weight = torch.FloatTensor(harn.hyper.criterion_params['weight'])
+                    weight = harn.xpu.to_xpu(weight)
+                    harn.hyper.criterion_params['weight'] = weight
+
                 harn.criterion = harn.hyper.criterion_cls(
                     **harn.hyper.criterion_params)
             else:
