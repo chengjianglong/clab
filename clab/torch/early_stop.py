@@ -21,7 +21,9 @@ class EarlyStop(object):
     def __init__(early_stop, patience=10):
         # import sortedcontainers
         # store tuples of (loss, epoch)
-        early_stop.memory = collections.deque(maxlen=3)
+
+        n_remember = 3
+        early_stop.memory = collections.deque(maxlen=n_remember)
         # util.SortedQueue(maxsize=3)
 
         early_stop.prev_epoch = None
@@ -41,6 +43,7 @@ class EarlyStop(object):
         if len(early_stop.memory) == 0:
             early_stop.memory.appendleft((epoch, loss))
         elif loss < early_stop.memory[0][1]:
+            # TODO: delete snapshots as they become irrelevant
             early_stop.memory.appendleft((epoch, loss))
 
         # if len(early_stop.memory) == early_stop.memory.maxsize:
