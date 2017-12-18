@@ -229,8 +229,11 @@ class FitHarness(object):
                 harn.hyper.criterion_params['weight'] = weight
 
             # more than one criterion?
-            harn.criterion = harn.hyper.criterion_cls(
-                **harn.hyper.criterion_params)
+            if harn.hyper.criterion_cls:
+                harn.criterion = harn.hyper.criterion_cls(
+                    **harn.hyper.criterion_params)
+            else:
+                pass
 
             harn.optimizer = harn.hyper.make_optimizer(harn.model.parameters())
             harn.scheduler = harn.hyper.make_scheduler(harn.optimizer)
