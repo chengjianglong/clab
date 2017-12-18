@@ -224,7 +224,7 @@ class HyperParams(object):
     #         weight = list(map(float, weight))
     #         hyper.criterion_params['weight'] = weight
 
-    def make_model(hyper, parameters):
+    def make_model(hyper):
         """ Instanciate the model defined by the hyperparams """
         model = hyper.model_cls(**hyper.model_params)
         return model

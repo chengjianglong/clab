@@ -130,6 +130,8 @@ class FitHarness(object):
         harn.prog = None
         harn._subprogs = None
 
+        harn._tensorboard_hooks = []
+
         harn._metric_hooks = []
         harn._run_metrics = None
         harn._custom_run_batch = None
@@ -365,10 +367,6 @@ class FitHarness(object):
             # Measure train accuracy and other informative metrics
             cur_metrics = harn._call_metric_hooks(outputs, labels, loss)
 
-            # if 1:
-            #     harn._tensorboard_extra(inputs, outputs, labels, tag,
-            #                             iter_idx, loader)
-
             # Accumulate measures
             epoch_moving_metrics.update(cur_metrics)
             iter_moving_metircs.update(cur_metrics)
@@ -382,11 +380,13 @@ class FitHarness(object):
                 prog.set_description(tag + ' ' + msg)
 
                 for key, value in ave_metrics.items():
-                    # harn.log_value(tag + ' ' + key, value, iter_idx)
-                    # TODO: use this one:
                     harn.log_value(tag + ' iter ' + key, value, iter_idx)
 
                 prog.update(harn.intervals['display_' + tag])
+
+            # Custom tensorboard output
+            for _hook in harn._tensorboard_hooks:
+                _hook(harn, tag, inputs, outputs, labels, bx, loader)
 
         # Record a true average for the entire batch
         epoch_metrics = epoch_moving_metrics.average()
@@ -448,93 +448,6 @@ class FitHarness(object):
         # TODO: how do we support multiple losses for deep supervision?
         loss = harn.criterion(outputs, labels)
         return outputs, loss
-
-    def _tensorboard_inputs(harn, inputs, iter_idx, tag):
-        """
-            >>> tensor = torch.rand(4, 3, 42, 420)
-            >>> inputs = [tensor]
-        """
-        # print("LOG IMAGES")
-        if False:
-            # todo: add dataset / task hook for extracting images
-            pass
-        else:
-            # default_convert = im_loaders.rgb_tensor_to_imgs
-            def default_convert(tensor):
-                if len(tensor.shape) == 4:
-                    arr = tensor.data.cpu().numpy().transpose(0, 2, 3, 1)
-                    aux = []
-                    if arr.shape[3] == 1:
-                        ims = arr[:, :, :, 0]
-                    elif arr.shape[3] == 3:
-                        ims = arr
-                    else:
-                        ims = arr[:, :, :, 0:3]
-                        aux = [arr[:, :, :, c] for c in range(3, arr.shape[3])]
-                    imaux = [ims] + aux
-                    return imaux
-                elif len(tensor.shape) == 3:
-                    return [tensor.data.cpu().numpy()]
-                else:
-                    raise NotImplementedError(str(tensor.shape))
-
-        # def single_image_render(im):
-        #     import plottool as pt
-        #     with pt.RenderingContext() as render:
-        #         pt.figure(fnum=1, pnum=(1, 1, 1), doclf=True)
-        #         if len(im.shape) == 3:
-        #             im = im[:, :, ::-1]
-        #         print(im.shape)
-        #         print(im.dtype)
-        #         pt.imshow(im, norm=True, cmap='viridis', data_colorbar=True,
-        #                   ax=pt.gca())
-        #     out_im = render.image[:, :, ::-1]
-        #     return out_im
-
-        for i, input_tensor in enumerate(inputs):
-            # print('\n\n')
-            if len(input_tensor.shape) == 4:
-                # print('input_tensor.shape = {!r}'.format(input_tensor.shape))
-                imaux = default_convert(input_tensor[0:2])
-                for c, images in enumerate(imaux):
-                    extent = (images.max() - images.min())
-                    images = (images - images.min()) / max(extent, 1e-6)
-                    # print('images.shape = {!r}'.format(images.shape))
-                    # images = [single_image_render(im) for im in images]
-                    # for im in images:
-                    #     print('im.shape = {!r}'.format(im.shape))
-                    #     print('im.dtype = {!r}'.format(im.dtype))
-                    #     print(im.max())
-                    #     print(im.min())
-                    harn.log_images(tag + '-c{c}-in{i}-iter{x}'.format(i=i, c=c, x=iter_idx), images, iter_idx)
-            else:
-                print('\nSKIPPING INPUT VISUALIZE\n')
-
-    def _tensorboard_extra(harn, inputs, output, label, tag, iter_idx, loader):
-        # https://github.com/yunjey/pytorch-tutorial/blob/master/tutorials/04-utils/tensorboard/main.py#L83-L105
-        # print("\nTENSORBOARD EXTRAS\n")
-        # loader.dataset
-        # print('\n\ninputs.shape = {!r}'.format(inputs[0].shape))
-
-        if iter_idx == 0:
-            harn._tensorboard_inputs(inputs, iter_idx, tag)
-
-        if iter_idx % 1000 == 0:
-            true = label.data.cpu().numpy().ravel()
-            n_classes = harn.hyper.other['n_classes']
-            counts = np.bincount(true, minlength=n_classes)
-            bins = list(range(n_classes + 1))
-            harn.log_histogram(tag + '-true-', (bins, counts), iter_idx)
-
-        if iter_idx % 1000 == 0:
-            if not harn.dry:
-                n_classes = harn.hyper.other['n_classes']
-                preds = output.max(dim=1)[1].data.cpu().numpy().ravel()
-                counts = np.bincount(preds, minlength=n_classes)
-                bins = list(range(n_classes + 1))
-                harn.log_histogram(tag + '-pred-', (bins, counts), iter_idx)
-                # import torch.nn.functional as F
-                # probs = torch.exp(F.log_softmax(output, dim=1))
 
     def add_metric_hook(harn, hook):
         """
@@ -652,6 +565,93 @@ class FitHarness(object):
         harn.prog = None
         harn._subprogs = None
         sys.stdout.write('\n\n\n\n')  # fixes progress bar formatting
+
+    # def _tensorboard_inputs(harn, inputs, iter_idx, tag):
+    #     """
+    #         >>> tensor = torch.rand(4, 3, 42, 420)
+    #         >>> inputs = [tensor]
+    #     """
+    #     # print("LOG IMAGES")
+    #     if False:
+    #         # todo: add dataset / task hook for extracting images
+    #         pass
+    #     else:
+    #         # default_convert = im_loaders.rgb_tensor_to_imgs
+    #         def default_convert(tensor):
+    #             if len(tensor.shape) == 4:
+    #                 arr = tensor.data.cpu().numpy().transpose(0, 2, 3, 1)
+    #                 aux = []
+    #                 if arr.shape[3] == 1:
+    #                     ims = arr[:, :, :, 0]
+    #                 elif arr.shape[3] == 3:
+    #                     ims = arr
+    #                 else:
+    #                     ims = arr[:, :, :, 0:3]
+    #                     aux = [arr[:, :, :, c] for c in range(3, arr.shape[3])]
+    #                 imaux = [ims] + aux
+    #                 return imaux
+    #             elif len(tensor.shape) == 3:
+    #                 return [tensor.data.cpu().numpy()]
+    #             else:
+    #                 raise NotImplementedError(str(tensor.shape))
+
+    #     # def single_image_render(im):
+    #     #     import plottool as pt
+    #     #     with pt.RenderingContext() as render:
+    #     #         pt.figure(fnum=1, pnum=(1, 1, 1), doclf=True)
+    #     #         if len(im.shape) == 3:
+    #     #             im = im[:, :, ::-1]
+    #     #         print(im.shape)
+    #     #         print(im.dtype)
+    #     #         pt.imshow(im, norm=True, cmap='viridis', data_colorbar=True,
+    #     #                   ax=pt.gca())
+    #     #     out_im = render.image[:, :, ::-1]
+    #     #     return out_im
+
+    #     for i, input_tensor in enumerate(inputs):
+    #         # print('\n\n')
+    #         if len(input_tensor.shape) == 4:
+    #             # print('input_tensor.shape = {!r}'.format(input_tensor.shape))
+    #             imaux = default_convert(input_tensor[0:2])
+    #             for c, images in enumerate(imaux):
+    #                 extent = (images.max() - images.min())
+    #                 images = (images - images.min()) / max(extent, 1e-6)
+    #                 # print('images.shape = {!r}'.format(images.shape))
+    #                 # images = [single_image_render(im) for im in images]
+    #                 # for im in images:
+    #                 #     print('im.shape = {!r}'.format(im.shape))
+    #                 #     print('im.dtype = {!r}'.format(im.dtype))
+    #                 #     print(im.max())
+    #                 #     print(im.min())
+    #                 harn.log_images(tag + '-c{c}-in{i}-iter{x}'.format(i=i, c=c, x=iter_idx), images, iter_idx)
+    #         else:
+    #             print('\nSKIPPING INPUT VISUALIZE\n')
+
+    # def _tensorboard_extra(harn, inputs, output, label, tag, iter_idx, loader):
+    #     # https://github.com/yunjey/pytorch-tutorial/blob/master/tutorials/04-utils/tensorboard/main.py#L83-L105
+    #     # print("\nTENSORBOARD EXTRAS\n")
+    #     # loader.dataset
+    #     # print('\n\ninputs.shape = {!r}'.format(inputs[0].shape))
+
+    #     if iter_idx == 0:
+    #         harn._tensorboard_inputs(inputs, iter_idx, tag)
+
+    #     if iter_idx % 1000 == 0:
+    #         true = label.data.cpu().numpy().ravel()
+    #         n_classes = harn.hyper.other['n_classes']
+    #         counts = np.bincount(true, minlength=n_classes)
+    #         bins = list(range(n_classes + 1))
+    #         harn.log_histogram(tag + '-true-', (bins, counts), iter_idx)
+
+    #     if iter_idx % 1000 == 0:
+    #         if not harn.dry:
+    #             n_classes = harn.hyper.other['n_classes']
+    #             preds = output.max(dim=1)[1].data.cpu().numpy().ravel()
+    #             counts = np.bincount(preds, minlength=n_classes)
+    #             bins = list(range(n_classes + 1))
+    #             harn.log_histogram(tag + '-pred-', (bins, counts), iter_idx)
+    #             # import torch.nn.functional as F
+    #             # probs = torch.exp(F.log_softmax(output, dim=1))
 
 
 def get_snapshot(train_dpath, epoch='recent'):
