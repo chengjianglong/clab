@@ -378,7 +378,7 @@ def train():
     # TODO: need something to auto-generate a cachable directory structure
     # train_dpath = ub.ensuredir('train_cifar_dense')
 
-    batch_size = 32
+    batch_size = 3
     harn = fit_harness.FitHarness(
         hyper=hyper, datasets=datasets, xpu=xpu, batch_size=batch_size,
     )

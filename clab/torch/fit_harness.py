@@ -22,7 +22,7 @@ from clab.torch import early_stop
 from clab import util  # NOQA
 from clab import getLogger
 logger = getLogger(__name__)
-print = logger.info
+print = util.protect_print(logger.info)
 
 
 def mnist_demo():
