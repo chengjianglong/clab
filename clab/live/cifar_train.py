@@ -324,6 +324,10 @@ def cifar_training_datasets():
 
 
 def train():
+    """
+    Example:
+        >>> train()
+    """
     datasets = cifar_training_datasets()
     datasets['train'].augment = True
 
