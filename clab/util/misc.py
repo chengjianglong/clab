@@ -280,3 +280,20 @@ def random_indices(num, seed=0):
     rng = np.random.RandomState(0)
     rng.shuffle(input_idxs)
     return input_idxs
+
+
+def ensure_rng(seed):
+    """
+    Creates a random number generator.
+
+    Args:
+        seed: if None, then the rng is unseeded. Otherwise the seed can be an
+            integer or a RandomState class
+    """
+    if seed is None:
+        rng = np.random.RandomState()
+    elif isinstance(seed, np.random.RandomState):
+        rng = seed
+    else:
+        rng = np.random.RandomState(seed)
+    return rng

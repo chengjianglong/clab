@@ -121,7 +121,6 @@ class FitHarness(object):
 
         harn._setup_loaders(datasets, batch_size)
 
-        harn.model = None
         harn.hyper = hyper
 
         # should this be a hyperparam?
@@ -138,6 +137,10 @@ class FitHarness(object):
 
         harn._epoch_callbacks = []
         harn._iter_callbacks = []
+
+        harn.model = None
+        harn.optimizer = None
+        harn.scheduler = None
 
         harn.intervals = {
             'display_train': 1,
@@ -182,6 +185,8 @@ class FitHarness(object):
             harn.loaders[tag] = loader
 
     def initialize_training(harn):
+        # TODO: Initialize the classes and then have a different function move
+        # everything to the GPU
         harn.xpu.set_as_default()
 
         if tensorboard_logger:
@@ -261,6 +266,9 @@ class FitHarness(object):
         harn.main_prog.set_description('epoch lr:{} │ {}'.format(lr_str, harn.stopping.message()))
 
     def run(harn):
+        """
+        Main training loop
+        """
         harn.log('Begin training')
 
         harn.initialize_training()
@@ -411,8 +419,7 @@ class FitHarness(object):
         https://github.com/meetshah1995/pytorch-semseg/blob/master/train.py
         """
         if harn.dry:
-            # output_shape = label.shape  # TODO: make sure this works
-            # TODO: make general
+            # TODO: make general if model has output_size_for
             # output_shape = (label.shape[0],) + tuple(harn.single_output_shape)
             # output_shape = (label.shape[0], 3, label.shape[1], label.shape[2])
             # output = Variable(torch.rand(*output_shape))
