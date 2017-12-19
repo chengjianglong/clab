@@ -15,7 +15,6 @@ import torchvision  # NOQA
 import itertools as it
 from clab.torch import metrics
 from clab.torch import xpu_device
-from clab.torch import nnio
 from clab.torch import early_stop
 from clab import util  # NOQA
 from clab import getLogger
@@ -563,7 +562,7 @@ class FitHarness(object):
         """
         Sets the harness to its state just after an epoch finished
         """
-        snapshot = torch.load(load_path, map_location=nnio.device_mapping(harn.xpu.num))
+        snapshot = harn.xpu.load(load_path)
         harn.log('Loading previous state: {}'.format(load_path))
         # the snapshot holds the previous epoch, so add one to move to current
         harn.epoch = snapshot['epoch'] + 1
