@@ -47,7 +47,6 @@ class DirectoryStructure(object):
             'other_id': other_id,
             'train_hyper_id': train_hyper_id,
             'train_hyper_hashid': train_hyper_hashid,
-            'colorspace': self.datasets['train'].colorspace,
             'init_method': self.hyper.init_method,
             'train_id': train_id,
             # TODO: keep init method history

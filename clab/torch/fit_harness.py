@@ -4,7 +4,6 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 import sys
 import tqdm
 import glob
-import numpy as np
 from os.path import join
 import os
 import ubelt as ub
@@ -17,7 +16,6 @@ import itertools as it
 from clab.torch import metrics
 from clab.torch import xpu_device
 from clab.torch import nnio
-from clab.torch import im_loaders
 from clab.torch import early_stop
 from clab import util  # NOQA
 from clab import getLogger
@@ -44,57 +42,80 @@ def mnist_demo():
     datasets = {
         'train': torchvision.datasets.MNIST(root, transform=transform,
                                             train=True, download=True),
-        'test': torchvision.datasets.MNIST(root, transform=transform,
+        'vali': torchvision.datasets.MNIST(root, transform=transform,
                                            train=False, download=True),
     }
 
+    # take a subset of data
+    factor = 1
+    datasets['train'].train_data = datasets['train'].train_data[::factor]
+    datasets['train'].train_labels = datasets['train'].train_labels[::factor]
+
+    factor = 1
+    datasets['vali'].test_data = datasets['vali'].test_data[::factor]
+    datasets['vali'].test_labels = datasets['vali'].test_labels[::factor]
+
+    # Give the training dataset an input_id
+    datasets['train'].input_id = 'mnist'
+
     batch_size = 128
     n_classes = 10
-    xpu = xpu_device.XPU.from_argv(min_memory=4000)
+    xpu = xpu_device.XPU.from_argv(min_memory=300)
     # model = models.MnistNet(n_channels=1, n_classes=n_classes)
 
     hyper = hyperparams.HyperParams(
-        model=models.MnistNet(n_channels=1, n_classes=n_classes),
+        model=(models.MnistNet, dict(n_channels=1, n_classes=n_classes)),
         optimizer=torch.optim.Adam,
+        scheduler='ReduceLROnPlateau',
         criterion=torch.nn.CrossEntropyLoss,
+        # stopping=('EarlyStopping', dict(patience=10)),  # TODO
+        # initializer='he',
         other={
             'n_classes': n_classes,
             # 'n_channels': n_channels,
         }
     )
 
-    train_dpath = os.path.expanduser('~/data/work/mnist/harness/mnist-net')
+    # train_dpath = os.path.expanduser('~/data/work/mnist/harness/mnist-net')
+    workdir = os.path.expanduser('~/data/work/mnist/')
+
     harn = FitHarness(
         datasets=datasets, batch_size=batch_size,
-        train_dpath=train_dpath, xpu=xpu, hyper=hyper,
+        xpu=xpu, hyper=hyper,
     )
 
-    labels = np.arange(n_classes)
+    # all_labels = np.arange(n_classes)
+    # @harn.add_metric_hook
+    # def custom_metrics(harn, output, labels):
+    #     # ignore_label = datasets['train'].ignore_label
+    #     # labels = datasets['train'].task.labels
+    #     label = labels[0]
+    #     metrics_dict = metrics._clf_metrics(output, label, labels=all_labels)
+    #     return metrics_dict
 
-    def custom_metrics(harn, output, label):
-        # ignore_label = datasets['train'].ignore_label
-        # labels = datasets['train'].task.labels
-        metrics_dict = metrics._clf_metrics(output, label, labels=labels)
-        return metrics_dict
-    harn.add_metric_hook(custom_metrics)
+    train_dpath = harn.setup_dpath(workdir)
+    print('train_dpath = {!r}'.format(train_dpath))
 
-    if False:
-        import plottool as pt
-        pt.qtensure()
-        ims, gts = next(iter(harn.loaders['train']))
-        pic = im_loaders.rgb_tensor_to_imgs(ims, norm=False)[0]
-        pt.clf()
-        pt.imshow(pic, norm=True, cmap='viridis', data_colorbar=True)
-
-        with pt.RenderingContext() as render:
-            tensor_data = datasets['train'][0][0][None, :]
-            pic = im_loaders.rgb_tensor_to_imgs(tensor_data, norm=False)[0]
-            pt.figure(fnum=1, doclf=True)
-            pt.imshow(pic, norm=True, cmap='viridis', data_colorbar=True,
-                      fnum=1)
-        render.image
+    if ub.argflag('--reset'):
+        ub.delete(train_dpath)
 
     harn.run()
+
+    # if False:
+    #     import plottool as pt
+    #     pt.qtensure()
+    #     ims, gts = next(iter(harn.loaders['train']))
+    #     pic = im_loaders.rgb_tensor_to_imgs(ims, norm=False)[0]
+    #     pt.clf()
+    #     pt.imshow(pic, norm=True, cmap='viridis', data_colorbar=True)
+
+    #     with pt.RenderingContext() as render:
+    #         tensor_data = datasets['train'][0][0][None, :]
+    #         pic = im_loaders.rgb_tensor_to_imgs(tensor_data, norm=False)[0]
+    #         pt.figure(fnum=1, doclf=True)
+    #         pt.imshow(pic, norm=True, cmap='viridis', data_colorbar=True,
+    #                   fnum=1)
+    #     render.image
 
 
 class FitHarness(object):
@@ -112,7 +133,6 @@ class FitHarness(object):
 
         harn.dry = dry
         harn.train_dpath = train_dpath
-        harn.snapshot_dpath = ub.ensuredir((harn.train_dpath, 'torch_snapshots'))
 
         if harn.dry:
             harn.xpu = xpu_device.XPU(None)
@@ -123,14 +143,9 @@ class FitHarness(object):
 
         harn.hyper = hyper
 
-        # should this be a hyperparam?
-        harn.stopping = early_stop.EarlyStop(patience=10)
-
         harn.main_prog = None
-        harn._subprogs = None
 
         harn._tensorboard_hooks = []
-
         harn._metric_hooks = []
         harn._run_metrics = None
         harn._custom_run_batch = None
@@ -139,8 +154,15 @@ class FitHarness(object):
         harn._iter_callbacks = []
 
         harn.model = None
+        # harn.initializer should be a hyperparam
         harn.optimizer = None
         harn.scheduler = None
+        # should this be a hyperparam? YES
+        harn.stopping = early_stop.EarlyStop(patience=30)
+
+        # this is optional and is designed for default solvers
+        # can be overriden by a custom_run_batch
+        harn.criterion = None
 
         harn.intervals = {
             'display_train': 1,
@@ -153,7 +175,7 @@ class FitHarness(object):
             'snapshot': 1,
         }
         harn.config = {
-            'show_prog': False,
+            'show_prog': True,
             'max_iter': 1000,
         }
         harn.epoch = 0
@@ -172,10 +194,14 @@ class FitHarness(object):
         if harn.xpu.is_gpu():
             data_kw.update({'num_workers': 6, 'pin_memory': True})
 
-        harn.loaders = {}
+        tags = ['train', 'vali', 'test']
+
+        harn.loaders = ub.odict()
         harn.datasets = datasets
-        for tag, dset in datasets.items():
-            assert tag in {'train', 'vali', 'test'}
+        for tag in tags:
+            if tag not in datasets:
+                continue
+            dset = datasets[tag]
             shuffle = tag == 'train'
             data_kw_ = data_kw.copy()
             if tag != 'train':
@@ -186,7 +212,7 @@ class FitHarness(object):
 
     def initialize_training(harn):
         # TODO: Initialize the classes and then have a different function move
-        # everything to the GPU
+        # everything to GPU
         harn.xpu.set_as_default()
 
         if tensorboard_logger:
@@ -210,7 +236,11 @@ class FitHarness(object):
                 harn.log('Criterion: Custom')
 
             harn.log('Optimizer: {}'.format(harn.hyper.optimizer_cls.__name__))
-            harn.log('Scheduler: {}'.format(harn.hyper.scheduler_cls.__name__))
+
+            if harn.hyper.scheduler_cls:
+                harn.log('Scheduler: {}'.format(harn.hyper.scheduler_cls.__name__))
+            else:
+                harn.log('No Scheduler')
 
             harn.log('Fitting {} model on {}'.format(model_name, harn.xpu))
 
@@ -242,7 +272,9 @@ class FitHarness(object):
                 pass
 
             harn.optimizer = harn.hyper.make_optimizer(harn.model.parameters())
-            harn.scheduler = harn.hyper.make_scheduler(harn.optimizer)
+
+            if harn.hyper.scheduler_cls:
+                harn.scheduler = harn.hyper.make_scheduler(harn.optimizer)
 
             if prev_states:
                 harn.load_snapshot(prev_states[-1])
@@ -257,13 +289,19 @@ class FitHarness(object):
                     group.setdefault('initial_lr', group['lr'])
 
     def update_prog_description(harn):
-        if hasattr(harn.scheduler, 'get_lr'):
-            lrs = set(harn.scheduler.get_lr())
+        if harn.scheduler is None:
+            lrs = set(map(lambda group: group['lr'], harn.optimizer.param_groups))
+            lr_str = ','.join(['{:.2g}'.format(lr) for lr in lrs])
         else:
-            # workaround for ReduceLROnPlateau
-            lrs = set(map(lambda group: group['lr'], harn.scheduler.optimizer.param_groups))
-        lr_str = ','.join(['{:.2g}'.format(lr) for lr in lrs])
-        harn.main_prog.set_description('epoch lr:{} │ {}'.format(lr_str, harn.stopping.message()))
+            if hasattr(harn.scheduler, 'get_lr'):
+                lrs = set(harn.scheduler.get_lr())
+            else:
+                # workaround for ReduceLROnPlateau
+                lrs = set(map(lambda group: group['lr'], harn.scheduler.optimizer.param_groups))
+            lr_str = ','.join(['{:.2g}'.format(lr) for lr in lrs])
+        desc = 'epoch lr:{} │ {}'.format(lr_str, harn.stopping.message())
+        harn.main_prog.set_description(desc)
+        harn.main_prog.refresh()
 
     def run(harn):
         """
@@ -277,16 +315,21 @@ class FitHarness(object):
             return
 
         harn.main_prog = tqdm.tqdm(desc='epoch', total=harn.config['max_iter'],
-                                   disable=harn.config['show_prog'],
-                                   dynamic_ncols=True, initial=harn.epoch)
-        harn._subprogs = {}
-
-        if harn.scheduler:
-            harn.update_prog_description()
+                                   disable=not harn.config['show_prog'],
+                                   leave=True, dynamic_ncols=True, position=1,
+                                   initial=harn.epoch)
+        harn.update_prog_description()
 
         train_loader = harn.loaders['train']
         vali_loader  = harn.loaders.get('vali', None)
         test_loader  = harn.loaders.get('test', None)
+
+        if vali_loader is None:
+            if harn.scheduler is not None:
+                if harn.stopping:
+                    raise ValueError('need a validataion dataset to use early stopping')
+                if harn.scheduler.__class__.__name__ == 'ReduceLROnPlateau':
+                    raise ValueError('need a validataion dataset to use ReduceLROnPlateau')
 
         # Keep track of moving metric averages across epochs
         harn._run_metrics = {
@@ -296,13 +339,6 @@ class FitHarness(object):
 
         try:
             for harn.epoch in it.count(harn.epoch):
-
-                # Make subprogress bars for each epoch
-                for tag in ['train', 'vali', 'test']:
-                    harn._reset_subprog(tag)
-
-                # change learning rate (modified optimizer inplace)
-                harn.update_prog_description()
 
                 # Run training epoch
                 harn.run_epoch(train_loader, tag='train', learn=True)
@@ -321,23 +357,23 @@ class FitHarness(object):
                     if (harn.epoch + 1) % harn.intervals['test'] == 0:
                         harn.run_epoch(test_loader, tag='test', learn=False)
 
-                for p in harn._subprogs.values():
-                    p.close()
-
                 if (harn.epoch + 1) % harn.intervals['snapshot'] == 0:
                     harn.save_snapshot()
 
-                harn.main_prog.update()
+                harn.main_prog.update(1)
 
                 # check for termination
                 if harn._check_termination():
                     raise StopIteration()
 
                 # change learning rate (modified optimizer inplace)
-                if harn.scheduler.__class__.__name__ == 'ReduceLROnPlateau':
+                if harn.scheduler is None:
+                    pass
+                elif harn.scheduler.__class__.__name__ == 'ReduceLROnPlateau':
                     harn.scheduler.step(vali_metrics['loss'])
                 else:
                     harn.scheduler.step()
+
                 harn.update_prog_description()
         except StopIteration:
             pass
@@ -361,7 +397,13 @@ class FitHarness(object):
 
         display_interval = harn.intervals['display_' + tag]
 
-        prog = harn._subprogs[tag]
+        msg = harn.batch_msg({'loss': -1}, loader.batch_size)
+        desc = tag + ' ' + msg
+        position = (list(harn.loaders.keys()).index(tag) +
+                    harn.main_prog.pos + 1)
+        prog = tqdm.tqdm(desc=desc, total=len(loader),
+                         disable=not harn.config['show_prog'],
+                         position=position, leave=True, dynamic_ncols=True)
 
         for bx, (inputs, labels) in enumerate(loader):
             iter_idx = (harn.epoch * len(loader) + bx)
@@ -404,6 +446,8 @@ class FitHarness(object):
             for _hook in harn._tensorboard_hooks:
                 _hook(harn, tag, inputs, outputs, labels, bx, loader)
 
+        prog.close()
+
         # Record a true average for the entire batch
         epoch_metrics = epoch_moving_metrics.average()
 
@@ -441,6 +485,26 @@ class FitHarness(object):
 
         return outputs, loss
 
+    def _default_run_batch(harn, harn_, inputs, labels):
+        # What happens when there are multiple criterions?
+        # How does hyperparam deal with that?
+
+        # Forward prop through the model
+        outputs = harn.model(*inputs)
+
+        # Compute the loss
+        # TODO: how do we support multiple losses for deep supervision?
+        # AND: overwrite this
+        if len(labels) == 1:
+            labels = labels[0]
+
+        try:
+            loss = harn.criterion(outputs, labels)
+        except Exception:
+            print('may need to make a custom batch runner with set_batch_runner')
+            raise
+        return outputs, loss
+
     def set_batch_runner(harn, func):
         """
         Define custom logic to do a forward pass with loss computation.
@@ -451,18 +515,6 @@ class FitHarness(object):
         """
         harn._custom_run_batch = func
         return func
-
-    def _default_run_batch(harn, inputs, labels):
-        # What happens when there are multiple criterions?
-        # How does hyperparam deal with that?
-
-        # Forward prop through the model
-        outputs = harn.model(*inputs)
-
-        # Compute the loss
-        # TODO: how do we support multiple losses for deep supervision?
-        loss = harn.criterion(outputs, labels)
-        return outputs, loss
 
     def add_metric_hook(harn, hook):
         """
@@ -498,14 +550,23 @@ class FitHarness(object):
         msg = ' │ ' .join([bs] + metric_parts) + ' │'
         return msg
 
+    @property
+    def snapshot_dpath(harn):
+        return join(harn.train_dpath, 'torch_snapshots')
+
     def prev_snapshots(harn):
+        ub.ensuredir(harn.snapshot_dpath)
         prev_states = sorted(glob.glob(join(harn.snapshot_dpath, '_epoch_*.pt')))
         return prev_states
 
     def load_snapshot(harn, load_path):
+        """
+        Sets the harness to its state just after an epoch finished
+        """
         snapshot = torch.load(load_path, map_location=nnio.device_mapping(harn.xpu.num))
         harn.log('Loading previous state: {}'.format(load_path))
-        harn.epoch = snapshot['epoch']
+        # the snapshot holds the previous epoch, so add one to move to current
+        harn.epoch = snapshot['epoch'] + 1
         harn.model.load_state_dict(snapshot['model_state_dict'])
         if 'optimizer_state_dict' in snapshot:
             harn.optimizer.load_state_dict(snapshot['optimizer_state_dict'])
@@ -513,6 +574,7 @@ class FitHarness(object):
 
     def save_snapshot(harn):
         # save snapshot
+        ub.ensuredir(harn.snapshot_dpath)
         save_path = join(harn.snapshot_dpath, '_epoch_{:08d}.pt'.format(harn.epoch))
         if harn.dry:
             harn.log('Would save snapshot to {}'.format(save_path))
@@ -532,10 +594,16 @@ class FitHarness(object):
                 'optimizer_state_dict': harn.optimizer.state_dict(),
             }
             torch.save(snapshot, save_path)
-            harn.log('Snapshot saved to {}'.format(save_path))
+            # harn.log('Snapshot saved to {}'.format(save_path))
 
     def log(harn, msg):
+        # if harn.main_prog:
+        #     harn.main_prog.write(str(msg), file=sys.stdout)
+        # else:
         print(msg)
+        # for line in msg.split('\n'):
+        #     print(line)
+        # print('line = {!r}'.format(line))
 
     def log_value(harn, key, value, n_iter):
         # if False:
@@ -555,15 +623,6 @@ class FitHarness(object):
         if harn.tlogger:
             harn.tlogger.log_images(key, value, n_iter)
 
-    def _reset_subprog(harn, tag):
-        loader = harn.loaders.get(tag, None)
-        if loader:
-            msg = harn.batch_msg({'loss': -1}, loader.batch_size)
-            desc = tag + ' ' + msg
-            harn._subprogs[tag] = tqdm.tqdm(desc=desc, total=len(loader),
-                                            disable=harn.config['show_prog'],
-                                            dynamic_ncols=True)
-
     def _check_termination(harn):
         if harn.epoch >= harn.config['max_iter']:
             harn._close_prog()
@@ -578,7 +637,6 @@ class FitHarness(object):
     def _close_prog(harn):
         harn.main_prog.close()
         harn.main_prog = None
-        harn._subprogs = None
         sys.stdout.write('\n\n\n\n')  # fixes progress bar formatting
 
     # def _tensorboard_inputs(harn, inputs, iter_idx, tag):

@@ -222,10 +222,13 @@ def compact_idstr(dict_):
 
 
 def protect_print(print):
+    import sys
     # def protected_print(*args, **kw):
     def protected_print(msg):
         if len(getattr(tqdm.tqdm, '_instances', [])):
-            tqdm.tqdm.write(str(msg))
+            # Specify file in case we are capturing stdout
+            for line in str(msg).split('\n'):
+                tqdm.tqdm.write(line, file=sys.stdout)
         else:
             # otherwise use the print / logger
             # (ensure logger has custom logic to exclude logging at this exact

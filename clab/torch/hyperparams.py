@@ -302,7 +302,7 @@ class HyperParams(object):
         # hyper._normalize()
 
         id_parts = []
-        total = ub.odict()
+        # total = ub.odict()
 
         def _make_part(cls, params):
             """
@@ -313,8 +313,8 @@ class HyperParams(object):
                 return
             d = ub.odict()
             for k, v in sorted(params.items()):
-                if k in total:
-                    raise KeyError(k)
+                # if k in total:
+                #     raise KeyError(k)
                 if isinstance(v, torch.Tensor):
                     v = v.numpy()
                 if isinstance(v, np.ndarray):
@@ -323,7 +323,7 @@ class HyperParams(object):
                     else:
                         raise NotImplementedError()
                 d[k] = v
-                total[k] = v
+                # total[k] = v
             type_str = cls.__name__
             # param_str = make_idstr(d)
             print('d = {!r}'.format(d))

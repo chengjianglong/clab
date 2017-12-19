@@ -41,7 +41,7 @@ class XPU(ub.NiceRepr):
 
     @classmethod
     def available(XPU, min_memory=6000):
-        gpu_num = gpu_util.find_unused_gpu(min_memory=6000)
+        gpu_num = gpu_util.find_unused_gpu(min_memory=min_memory)
         xpu = XPU(gpu_num)
         return xpu
 
