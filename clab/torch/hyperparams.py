@@ -8,6 +8,7 @@ import torch
 import six
 from clab import util
 from clab.torch import criterions
+from clab.torch import nninit
 # from clab.torch import lr_schedule
 
 
@@ -15,6 +16,8 @@ def make_short_idstr(params):
     """
     Make id-string where they keys are shortened
     """
+    if len(params) == 0:
+        return ''
     short_keys = util.shortest_unique_prefixes(list(params.keys()),
                                                allow_simple=False,
                                                allow_end=True,
@@ -35,6 +38,8 @@ def make_idstr(d):
     """
     Make full-length-key id-string
     """
+    if len(d) == 0:
+        return ''
     if not isinstance(d, ub.odict):
         d = ub.odict(sorted(d.items()))
     return ub.repr2(d, itemsep='', nobr=True, explicit=True, nl=0,
@@ -80,7 +85,7 @@ def _rectify_criterion(arg, kw):
         # arg = 'CrossEntropyLoss'
         return None, None
 
-    def _lookup_criterion(arg):
+    def _lookup(arg):
         if isinstance(arg, six.string_types):
             options = [
                 criterions.CrossEntropyLoss2D,
@@ -92,7 +97,7 @@ def _rectify_criterion(arg, kw):
             cls = arg
         return cls
 
-    cls, kw2 = _rectify_class(_lookup_criterion, arg, kw)
+    cls, kw2 = _rectify_class(_lookup, arg, kw)
     return cls, kw2
 
 
@@ -100,7 +105,7 @@ def _rectify_optimizer(arg, kw):
     if arg is None:
         arg = 'SGD'
 
-    def _lookup_optimizer(arg):
+    def _lookup(arg):
         if isinstance(arg, six.string_types):
             options = [
                 torch.optim.Adam,
@@ -111,7 +116,7 @@ def _rectify_optimizer(arg, kw):
             cls = arg
         return cls
 
-    cls, kw2 = _rectify_class(_lookup_optimizer, arg, kw)
+    cls, kw2 = _rectify_class(_lookup, arg, kw)
 
     from torch.optim import optimizer
     for k, v in kw2.items():
@@ -126,7 +131,7 @@ def _rectify_lr_scheduler(arg, kw):
         return None, None
         # arg = 'Constant'
 
-    def _lookup_scheduler(arg):
+    def _lookup(arg):
         if isinstance(arg, six.string_types):
             options = [
                 torch.optim.lr_scheduler.LambdaLR,
@@ -142,7 +147,26 @@ def _rectify_lr_scheduler(arg, kw):
             cls = arg
         return cls
 
-    cls, kw2 = _rectify_class(_lookup_scheduler, arg, kw)
+    cls, kw2 = _rectify_class(_lookup, arg, kw)
+    return cls, kw2
+
+
+def _rectify_initializer(arg, kw):
+    if arg is None:
+        # arg = 'CrossEntropyLoss'
+        return None, None
+
+    def _lookup(arg):
+        if isinstance(arg, six.string_types):
+            options = [
+                nninit.HeNormal,
+            ]
+            cls = {c.__name__: c for c in options}[arg]
+        else:
+            cls = arg
+        return cls
+
+    cls, kw2 = _rectify_class(_lookup, arg, kw)
     return cls, kw2
 
 
@@ -189,7 +213,7 @@ class HyperParams(object):
     """
 
     def __init__(hyper, criterion=None, optimizer=None, scheduler=None,
-                 model=None, other=None, init_method='he', **kwargs):
+                 model=None, other=None, initializer=None, **kwargs):
 
         cls, kw = _rectify_model(model, kwargs)
         hyper.model_cls = cls
@@ -209,12 +233,14 @@ class HyperParams(object):
         hyper.criterion_cls = cls
         hyper.criterion_params = kw
 
+        cls, kw = _rectify_initializer(initializer, kwargs)
+        hyper.initializer_cls = cls
+        hyper.initializer_params = kw
+
         if len(kwargs) > 0:
             raise ValueError('Unused kwargs {}'.format(list(kwargs.keys())))
 
         hyper.other = other
-        hyper.init_method = init_method  # TODO make initialization classes with params
-
     # def _normalize(hyper):
     #     """
     #     normalize for hashid generation
@@ -238,6 +264,11 @@ class HyperParams(object):
         """ Instanciate the lr scheduler defined by the hyperparams """
         scheduler = hyper.scheduler_cls(optimizer, **hyper.scheduler_params)
         return scheduler
+
+    def make_initializer(hyper):
+        """ Instanciate the initializer defined by the hyperparams """
+        initializer = hyper.initializer_cls(**hyper.initializer_params)
+        return initializer
 
     def model_id(hyper, brief=False):
         """
@@ -325,14 +356,15 @@ class HyperParams(object):
                 d[k] = v
                 # total[k] = v
             type_str = cls.__name__
-            # param_str = make_idstr(d)
-            print('d = {!r}'.format(d))
-            param_str = make_short_idstr(d)
+            param_str = make_idstr(d)
+            # param_str = make_short_idstr(d)
             assert ' at 0x' not in param_str, 'probably hashing an object: {}'.format(param_str)
             id_parts.append(type_str)
-            id_parts.append(param_str)
+            if param_str:
+                id_parts.append(param_str)
 
         _make_part(hyper.model_cls, hyper.model_params)
+        _make_part(hyper.initializer_cls, hyper.initializer_params)
         _make_part(hyper.optimizer_cls, hyper.optimizer_params)
         _make_part(hyper.scheduler_cls, hyper.scheduler_params)
         _make_part(hyper.criterion_cls, hyper.criterion_params)

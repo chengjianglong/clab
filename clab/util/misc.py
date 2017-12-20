@@ -300,3 +300,16 @@ def ensure_rng(seed):
     else:
         rng = np.random.RandomState(seed)
     return rng
+
+
+def make_idstr(d):
+    """
+    Make full-length-key id-string
+    """
+    import ubelt as ub
+    if len(d) == 0:
+        return ''
+    if not isinstance(d, ub.odict):
+        d = ub.odict(sorted(d.items()))
+    return ub.repr2(d, itemsep='', nobr=True, explicit=True, nl=0,
+                    si=True)
